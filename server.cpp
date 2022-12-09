@@ -30,38 +30,46 @@ typedef struct server {
     int listen_fd;
 } server;
 
-server http_svr;
+server tcpsvr;
+struct sockaddr_in frontendAddr, backendAddr;
+int backend_fd, maxfd;
+int client_len;
+
 request *req_arr;
 
 static void init_server(unsigned short port) {
     int tmp;
 
     gethostname(process_buf, sizeof(process_buf));
-    httpsvr.hostname = (string)process_buf;
-    httpsvr.port = port;
-    httpsvr.listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    welcome_fd = httpsvr.listen_fd;
+    // tcpsvr.hostname = (string)process_buf;
+    // tcpsvr.port = port;
+    backend_fd = socket(AF_INET, SOCK_STREAM, 0);
+    // tcpsvr.listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    // backend_fd = httpsvr.listen_fd;
 
     if(welcome_fd < 0) {
         ERR_EXIT("socket");
     }
-    bzero(&httpSvrAddr, sizeof(httpSvrAddr));
-    httpSvrAddr.sin_family = AF_INET;
-    httpSvrAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    httpSvrAddr.sin_port = htons((unsigned short)port);
+    bzero(&backendAddr, sizeof(backendAddr));
+    backendAddr.sin_family = AF_INET;
+    backendAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    backendAddr.sin_port = htons((unsigned short)port);
 
     tmp = 1;
-    if(setsockopt(welcome_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
+    if(setsockopt(backend_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
         ERR_EXIT("setsockopt");
     }
-    if(bind(welcome_fd, (struct sockaddr*)&httpSvrAddr, sizeof(httpSvrAddr))) {
+    if(bind(backend_fd, (struct sockaddr*)&backendAddr, sizeof(backendAddr))) {
         ERR_EXIT("bind");
     }
-    if(listen(welcome_fd, 1024) < 0) {
+    if(listen(backend_fd, 1024) < 0) {
         ERR_EXIT("listen");
     }
 
-    cout << "HTTP server listen on " << httpsvr.hostname << ':' << httpsvr.port << ", fd: " << welcome_fd << '\n';
+    cout << "TCP server listen on port: " << port << ", fd: " << backend_fd << '\n';
+
+    maxfd = getdtablesize();
+    request_arr = (request*) malloc(sizeof(request) * maxfd);
 }
 
 int main(int argc, char *argv) {

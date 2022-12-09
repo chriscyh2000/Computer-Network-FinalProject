@@ -68,7 +68,7 @@ static void init_server(int port, string tcpSvrIP, int tcpSvrPort) {
         ERR_EXIT("listen");
     }
 
-    cout << "HTTP server listen on port: " << httpsvr.port << ", fd: " << welcome_fd << '\n';
+    cout << "HTTP server listen on port: " << port << ", fd: " << welcome_fd << '\n';
 
     // tcp client connecting to server
     // connect2svr_fd = socket(AF_INET, SOCK_STREAM, 0);
