@@ -223,20 +223,12 @@ int main(int argc, char *argv[]) {
                     continue;
                 }
 
+                string response;
                 if(request_array[fdarray[i].fd].pkg.type == 0) {
-                    if((string)request_array[fdarray[i].fd].pkg.reqpath == "/") {
-                        int homepage_fd = open("./template/index.html", O_RDONLY);
-
-                        memset(process_buf, 0, sizeof(process_buf));
-                        int w = read(homepage_fd, request_array[fdarray[i].fd].pkg.buf, 2047);
-                        if(w < 0) {
-                            ERR_EXIT("read index.html");
-                        }
-                    }
-                    fdarray[i].events = POLLOUT;
+                    homepage_message(response, "", LOGINLEN);
+                    sprintf(request_array[fdarray[i].fd].pkg.buf, "%s", response.c_str());
                 }
                 else {
-                    string response;
                     // cout << "req: " << (string)request_array[fdarray[i].fd].pkg.reqpath <<'\n';
                     if((string)request_array[fdarray[i].fd].pkg.reqpath == "/register") {
                         string username = (string)request_array[fdarray[i].fd].pkg.sender;
@@ -300,6 +292,10 @@ int main(int argc, char *argv[]) {
 
                         sprintf(request_array[fdarray[i].fd].pkg.buf, "%s", response.c_str());
                         sprintf(request_array[fdarray[i].fd].pkg.sender, "%s", username.c_str());
+                    }
+                    else if((string)request_array[fdarray[i].fd].pkg.reqpath == "/logout") {
+                        homepage_message(response, "", LOGINLEN);
+                        sprintf(request_array[fdarray[i].fd].pkg.buf, "%s", response.c_str());
                     }
                 }
                 fdarray[i].events = POLLOUT;
