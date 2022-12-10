@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
-#include <string.h>
+#include <string>
 #include <vector>
 #include <unordered_map>
 
@@ -20,6 +20,16 @@
 #define ERR_EXIT(a) do { perror(a); exit(1); } while(0)
 
 using namespace std;
+
+typedef struct package {
+    int type, buf_size;
+    char sender[256];
+    char password[28];
+    char reqpath[256];
+    char message[256];
+    char buf[2048];
+    time_t Time;
+} package;
 
 typedef struct request {
     int conn_fd;
@@ -40,6 +50,7 @@ struct sockaddr_in httpSvrAddr, tcpSvrAddr, clientAddr;
 int welcome_fd, connect2svr_fd, client_fd;
 int client_len;
 unordered_map<string, string> req_map;
+package pkg;
 
 static void init_server(int port, string tcpSvrIP, int tcpSvrPort) {
     int tmp;
@@ -70,33 +81,35 @@ static void init_server(int port, string tcpSvrIP, int tcpSvrPort) {
 
     cout << "HTTP server listen on port: " << port << ", fd: " << welcome_fd << '\n';
 
-    // tcp client connecting to server
-    // connect2svr_fd = socket(AF_INET, SOCK_STREAM, 0);
-    // if(connect2svr_fd < 0) {
-    //     ERR_EXIT("socket");
-    // }
-    // if(inet_addr(tcpSvrIP.c_str()) < 0) {
-    //     fprintf(stderr, "server ip should be a valid ip.\n");
-    //     exit(1);
-    // }
-    // if(tcpSvrPort < 0 || tcpSvrPort > 65535) {
-    //     fprintf(stderr, "server port should be a number between 0 to 65535.\n");
-    //     exit(1);
-    // }
-    // bzero(&tcpSvrAddr, sizeof(tcpSvrAddr));
-    // tcpSvrAddr.sin_family = AF_INET;
-    // tcpSvrAddr.sin_addr.s_addr = inet_addr(tcpSvrIP.c_str());
-    // tcpSvrAddr.sin_port = htons((unsigned short)tcpSvrPort);
+    // tcp client connecting to server(backend)
+    connect2svr_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if(connect2svr_fd < 0) {
+        ERR_EXIT("socket");
+    }
+    if(inet_addr(tcpSvrIP.c_str()) < 0) {
+        fprintf(stderr, "server ip should be a valid ip.\n");
+        exit(1);
+    }
+    if(tcpSvrPort < 0 || tcpSvrPort > 65535) {
+        fprintf(stderr, "server port should be a number between 0 to 65535.\n");
+        exit(1);
+    }
+    bzero(&tcpSvrAddr, sizeof(tcpSvrAddr));
 
-    // tmp = 1;
-    // if(setsockopt(connect2svr_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
-    //     ERR_EXIT("setsockopt");
-    // }
-    // if(connect(connect2svr_fd, (struct sockaddr*)&tcpSvrAddr, sizeof(tcpSvrAddr)) < 0) {
-    //     ERR_EXIT("connect");
-    // }
+    tcpSvrAddr.sin_family = AF_INET;
+    tcpSvrAddr.sin_addr.s_addr = inet_addr(tcpSvrIP.c_str());
+    tcpSvrAddr.sin_port = htons((unsigned short)tcpSvrPort);
+    // cout << tcpSvrPort << '\n';
+    tmp = 1;
+    if(setsockopt(connect2svr_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
+        ERR_EXIT("setsockopt");
+    }
+    if(connect(connect2svr_fd, (struct sockaddr*)&tcpSvrAddr, sizeof(tcpSvrAddr)) < 0) {
 
-    // cout << "connected to " + tcpSvrIP << '\n';
+        ERR_EXIT("connect");
+    }
+
+    cout << "connected to " + tcpSvrIP << '\n';
 }
 
 string set_200_header(string file_type, string extra_field = "", int body_len = 0) {
@@ -123,11 +136,11 @@ int read_httpreq() {
         return -1;
     }
 
-    // cout << "\nreq: \n" << req <<'\n';
     // seperate header and body
     string header = req.substr(0, eoh), subheader = header, body = req.substr(eoh + 4), tmpstr;
     eoh += 4;
-
+    // cout << "\n\nheader: \n" << header << "\n\n\n";
+    // cout << "\n\nbody: \n" << body << "\n\n\n";
     int sz, sep;
     sz = subheader.find("\r\n");
     tmpstr = subheader.substr(0, sz);
@@ -136,12 +149,12 @@ int read_httpreq() {
     // method
     sz = tmpstr.find(" ");
     req_map["method"] = tmpstr.substr(0, sz);
-    cout << "method: " << req_map["method"]  << '\n';
+    // cout << "method: " << req_map["method"]  << '\n';
     tmpstr = tmpstr.substr(sz + 1);
     // reqpath
     sz = tmpstr.find(" ");
     req_map["reqpath"] = tmpstr.substr(0, sz);
-    cout << "reqpath: " << req_map["reqpath"]  << '\n';
+    // cout << "reqpath: " << req_map["reqpath"]  << '\n';
 
     // by traversing the header, split each field out and store it into a map
     while((sz = subheader.find("\r\n")) != string::npos) {
@@ -149,14 +162,29 @@ int read_httpreq() {
         subheader = subheader.substr(sz + 2);
         sep = tmpstr.find(": ");
         req_map[tmpstr.substr(0, sep)] = tmpstr.substr(sep + 2);
-        cout << tmpstr.substr(0, sep) + ": " + tmpstr.substr(sep + 2) + "\n";
+        // cout << tmpstr.substr(0, sep) + ": " + tmpstr.substr(sep + 2) + "\n";
     }
 
     // get the last field in request
     sep = subheader.find(": ");
-    req_map[subheader.substr(0, sep)] = subheader.substr(sep + 2);
-    cout << subheader.substr(0, sep) + ": " + subheader.substr(sep + 2) + "\n";
+    if(sep != string::npos) {
+        req_map[subheader.substr(0, sep)] = subheader.substr(sep + 2);
+        // cout << subheader.substr(0, sep) + ": " + subheader.substr(sep + 2) + "\n";
+    }
 
+    string subbody = body;
+    while((sz = subbody.find("\r\n")) != string::npos) {
+        tmpstr = subbody.substr(0, sz);
+        subbody = subbody.substr(sz + 2);
+        sep = tmpstr.find("=");
+        req_map[tmpstr.substr(0, sep)] = tmpstr.substr(sep + 1);
+        // cout << tmpstr.substr(0, sep) + " = " + tmpstr.substr(sep + 1) + "\n";
+    }
+    sep = subbody.find("=");
+    if(sep != string::npos) {
+        req_map[subbody.substr(0, sep)] = subbody.substr(sep + 1);
+        // cout << subbody.substr(0, sep) + " = " + subbody.substr(sep + 1) + "\n";    
+    }
     return 1;
 }
 
@@ -174,11 +202,11 @@ int main(int argc, char *argv[]) {
     string tcpSvrIP = arg1.substr(0, arg1.find(':')), tcpSvrPortStr = arg1.substr(arg1.find(':') + 1);
     string myPortStr = (string)argv[2];
 
-    cout << tcpSvrIP << ' ' << tcpSvrPortStr << '\n';
-
     int tcpSvrPort = stoi(tcpSvrPortStr), myPort = stoi(myPortStr);
     init_server(myPort, tcpSvrIP, tcpSvrPort);
     
+    string username;
+
     while(1) {
         client_len = sizeof(clientAddr);
         client_fd = -1;
@@ -193,8 +221,8 @@ int main(int argc, char *argv[]) {
 
         // read the fd when it is ready to read
         struct pollfd pfd[2];
-        pfd[0].events = POLLIN;
         pfd[0].fd = client_fd;
+        pfd[0].events = POLLIN;
 
         if(poll(pfd, (nfds_t)1, -1) < 0) {
             if(errno == EINTR || errno == EAGAIN) {
@@ -205,7 +233,49 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "read error\n");
         } 
         else {
-            
+            memset(&pkg, 0, sizeof(pkg));
+            sprintf(pkg.reqpath, "%s", req_map["reqpath"].c_str());
+            if(req_map["method"] == "GET") {
+                pkg.type = 0;
+                username = "";
+            }
+            else if(req_map["method"] == "POST") {
+                if(!username.empty() && (string)pkg.reqpath != "/register") {
+                    req_map["username"] = username;
+                }
+                pkg.type = 1;
+                if(req_map.find("username") != req_map.end()) {
+                    sprintf(pkg.sender, "%s", req_map["username"].c_str());
+                }
+                if(req_map.find("password") != req_map.end()) {
+                    sprintf(pkg.password, "%s", req_map["password"].c_str());
+                }
+                if(req_map.find("content") != req_map.end()) {
+                    sprintf(pkg.message, "%s", req_map["content"].c_str());
+                }
+            }
+
+            // send request to backend 
+            write(connect2svr_fd, &pkg, sizeof(package));
+
+            struct pollfd svrpfd[2];
+            svrpfd[0].fd = connect2svr_fd;
+            svrpfd[0].events = POLLIN;
+            // read response from backend 
+            if(poll(svrpfd, (nfds_t)1, -1) < 0) {
+                if(errno == EINTR || errno == EAGAIN) {
+                    continue;
+                }
+            }
+            memset(&pkg, 0, sizeof(pkg));
+            read(connect2svr_fd, &pkg, sizeof(package));
+
+            // record username
+            username = (string)(pkg.sender);
+
+            string header = set_200_header("text/html", "", strlen(pkg.buf));
+            string response = header + (string)(pkg.buf);
+            write(client_fd, response.c_str(), response.length());
         }
         close(client_fd);
     }

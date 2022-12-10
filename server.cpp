@@ -20,6 +20,11 @@
 #define MSGMAX 10000
 
 using namespace std;
+using namespace filesystem;
+
+#define LOGINLEN 16
+#define REGISTERLEN 24
+#define BOARDLEN 7
 
 char process_buf[MSGMAX + 10];
 
@@ -90,16 +95,18 @@ void init_database() {
     remove_all("database");
     create_directory("database");
 
-    ofstream user_info("user_passwd.txt");
+    ofstream user_info("./database/user_passwd.txt");
     user_info << "";
+    user_info.close();
 
-    ofstream messages("messages.txt");
-    messages << "";
+    ofstream comments("./database/comments.txt");
+    comments << "";
+    comments.close();
 }
 
 static void init_request(request *reqP) {
     reqP->conn_fd = -1;
-    memset(reqP->pkg, 0, sizeof(package));
+    memset(&(reqP->pkg), 0, sizeof(package));
 }
 
 static void free_request(request *reqP) {
@@ -110,21 +117,18 @@ static void free_request(request *reqP) {
     init_request(reqP);
 }
 
-static void check_connection(struct pollfd *fdarray, int &i, nfds_t &nfds) {
-    if(read(fdarray[i].fd, tmp_buff, 0) < 0 && write(fdarray[i].fd, "", 0) < 0) {
-        close(fdarray[i].fd);
-        free_request(&request_array[fdarray[i].fd]);
-        printf("Connection from %s closed\n", request_array[fdarray[i].fd].hostname);
-        fdarray[i] = fdarray[--nfds];
-        --(i);
-    }
+static int check_connection(struct pollfd *fdarray, int &i, nfds_t &nfds) {
+    int error_code;
+    int error_code_size = sizeof(error_code);
+    getsockopt(fdarray[i].fd, SOL_SOCKET, SO_ERROR, &error_code, (socklen_t *)&error_code_size);
+    return error_code;
 }
 
 static int read_package(int fd) {
     int bytes = 0, tmp;
-    memset(request_array[fd].pkg, 0, sizeof(package));
+    memset(&(request_array[fd].pkg), 0, sizeof(package));
     while(bytes < sizeof(package)) {
-        tmp = read(fd, request_array[fd].pkg, sizeof(package));
+        tmp = read(fd, &(request_array[fd].pkg), sizeof(package));
         if(tmp <= 0) {
             if(errno == EAGAIN) {
                 continue;
@@ -136,8 +140,54 @@ static int read_package(int fd) {
     return bytes;
 }
 
+/* Homwpage Error Detection */
+static void homepage_message(string &response, string error, int line_num) {
+    string data;
+    fstream data_file;
+    data_file.open("./template/index.html");
+    for(int i = 1; i <= line_num; ++i) {
+        getline(data_file, data);
+        response.append(data + "\n");
+    }
+    response.append("<h4>" + error + "<h4>\n");
+    while(getline(data_file, data)) {
+        response.append(data + "\n");
+    }
+}
+
+static pair<bool, string> find_user(string &username) {
+    string data;
+    fstream data_file;
+    data_file.open("./database/user_passwd.txt");
+    while(getline(data_file, data)) {
+        int sep = data.find(",");
+        if(data.substr(0, sep) == username) {
+            return {1, data.substr(sep + 1)};
+        }
+    }
+    return {0, ""};
+}
+
+static void load_comments(string &response) {
+    string data;
+    fstream template_file, comments_file;
+    template_file.open("./template/board.html");
+    for(int i = 1; i <= BOARDLEN; ++i) {
+        getline(template_file, data);
+        response.append(data + "\n");
+    }
+    comments_file.open("./database/comments.txt");
+    while(getline(comments_file, data)) {
+        int sep = data.find(",");
+        response.append("<p>[" + data.substr(0, sep) + "]: " + data.substr(sep + 1) + "\n");
+    }
+    while(getline(template_file, data)) {
+        response.append(data + "\n");
+    }
+}
+
 int main(int argc, char *argv[]) {
-    if(argc != 2 || argc != 3) {
+    if(argc != 2 && argc != 3) {
         fprintf(stderr, "usage: %s [SERVER_PORT] [OPTIONAL]--init\n", argv[0]);
         exit(1);
     }
@@ -165,20 +215,110 @@ int main(int argc, char *argv[]) {
             }
         }
         for(int i = 1; i < nfds; ++i) { // we can threading here
+            check_connection(fdarray, i, nfds);
             if(fdarray[i].revents & POLLIN) {
-                read_package(fdarray[i].fd);
+                if(read_package(fdarray[i].fd) <= 0 || check_connection(fdarray, i, nfds) > 0) {
+                    close(fdarray[i].fd);
+                    swap(fdarray[i--], fdarray[--nfds]);
+                    continue;
+                }
+
+                if(request_array[fdarray[i].fd].pkg.type == 0) {
+                    if((string)request_array[fdarray[i].fd].pkg.reqpath == "/") {
+                        int homepage_fd = open("./template/index.html", O_RDONLY);
+
+                        memset(process_buf, 0, sizeof(process_buf));
+                        int w = read(homepage_fd, request_array[fdarray[i].fd].pkg.buf, 2047);
+                        if(w < 0) {
+                            ERR_EXIT("read index.html");
+                        }
+                    }
+                    fdarray[i].events = POLLOUT;
+                }
+                else {
+                    string response;
+                    // cout << "req: " << (string)request_array[fdarray[i].fd].pkg.reqpath <<'\n';
+                    if((string)request_array[fdarray[i].fd].pkg.reqpath == "/register") {
+                        string username = (string)request_array[fdarray[i].fd].pkg.sender;
+                        string password = (string)request_array[fdarray[i].fd].pkg.password;
+                        memset(&(request_array[fdarray[i].fd].pkg), 0, sizeof(package));
+
+                        pair<int, string> search_res;
+                        if(username.empty() || password.empty()) {
+                            homepage_message(response, "Username and Password cannot be empty.", REGISTERLEN);
+                        }
+                        else if((search_res = find_user(username)).first == 1) {
+                            homepage_message(response, "The user name already exists.", REGISTERLEN);
+                        }
+                        else {
+                            ofstream file;
+                            file.open("./database/user_passwd.txt", ios_base::app);
+                            file << username << "," << password << '\n';
+                            file.close();
+                            homepage_message(response, "Success.", REGISTERLEN);
+                        }
+
+                        sprintf(request_array[fdarray[i].fd].pkg.buf, "%s", response.c_str());
+                    }
+                    else if((string)request_array[fdarray[i].fd].pkg.reqpath == "/login") {
+                        string username = (string)request_array[fdarray[i].fd].pkg.sender;
+                        string password = (string)request_array[fdarray[i].fd].pkg.password;
+                        memset(&(request_array[fdarray[i].fd].pkg), 0, sizeof(package));
+
+                        // cout << username << " " << password << "\n";
+                        pair<int, string> search_res;
+                        if(username.empty() || password.empty()) {
+                            homepage_message(response, "Username and Password cannot be empty.", LOGINLEN);
+                        }
+                        else if((search_res = find_user(username)).first == 0) {
+                            homepage_message(response, "The username does not exist.", LOGINLEN);
+                        }
+                        else if(search_res.second != password) {
+                            homepage_message(response, "The password is not correct.", LOGINLEN);
+                        }
+                        else {
+                            sprintf(request_array[fdarray[i].fd].pkg.sender, "%s", username.c_str());
+                            load_comments(response);
+                        }
+                        sprintf(request_array[fdarray[i].fd].pkg.buf, "%s", response.c_str());
+                    }
+                    else if((string)request_array[fdarray[i].fd].pkg.reqpath == "/comment") {
+                        string username = (string)request_array[fdarray[i].fd].pkg.sender;
+                        string message = (string)request_array[fdarray[i].fd].pkg.message;
+                        memset(&(request_array[fdarray[i].fd].pkg), 0, sizeof(package));
+
+                        if(username.empty()) {
+                            homepage_message(response, "", LOGINLEN);
+                        }
+                        else {
+                            ofstream file;
+                            file.open("./database/comments.txt", ios_base::app);
+                            file << username << "," << message << '\n';
+                            file.close();
+                            load_comments(response);
+                        }
+
+                        sprintf(request_array[fdarray[i].fd].pkg.buf, "%s", response.c_str());
+                        sprintf(request_array[fdarray[i].fd].pkg.sender, "%s", username.c_str());
+                    }
+                }
                 fdarray[i].events = POLLOUT;
-                check_connection(fdarray, i, nfds);
             }
             else if(fdarray[i].revents & POLLOUT) {
-                write(fdarray[i].fd, request_array[fdarray[i].fd].pkg, sizeof(package));
+                // cout << "BUF:" << (string)(request_array[fdarray[i].fd].pkg.buf) << '\n';
+                if(write(fdarray[i].fd, &(request_array[fdarray[i].fd].pkg), sizeof(package)) <= 0 || \
+                    check_connection(fdarray, i, nfds) > 0) {
+
+                    close(fdarray[i].fd);
+                    swap(fdarray[i--], fdarray[--nfds]);
+                    continue;
+                }
                 fdarray[i].events = POLLIN;
-                check_connection(fdarray, i, nfds);
             }
         }
         if(fdarray[0].revents & POLLIN) {
             client_len = sizeof(frontendAddr);
-            conn_fd = accept(backend_fd, (struct sockaddr *)&frontendAddr, (scoklen_t *)client_len);
+            int conn_fd = accept(backend_fd, (struct sockaddr *)&frontendAddr, (socklen_t *)&client_len);
 
             if(conn_fd < 0) {
                 if(errno == EINTR || errno == EAGAIN) {
