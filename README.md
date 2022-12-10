@@ -3,7 +3,7 @@ The final project of Computer Network 2022 (@NTU) (Project phase 2)
 
 ### The Function of this BULLETIN BOARD
 - Allow multiple users comment on the board 
-- Users can register / login / logout on this website
+- Users can register / login / log out on this website
 
 ## Other features
 - Used `poll` to perform multiplexing
