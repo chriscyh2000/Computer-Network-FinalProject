@@ -20,7 +20,7 @@ g++ -std=c++17 server.cpp -o server
 # initialize the database and run the server
 ./server [PORT_NUMBER] --init
 # if you don't want to initialize it, just use the following command
-./server
+./server [PROT_NUMBER]
 
 # in your client side
 g++ -std=c++17 client.cpp -o client
