@@ -45,71 +45,66 @@ typedef struct server {
 
 char process_buf[HEADER_MAX+10];
 
-server httpsvr;
-struct sockaddr_in httpSvrAddr, tcpSvrAddr, clientAddr;
-int welcome_fd, connect2svr_fd, client_fd;
+struct sockaddr_in frontendAddr, backendAddr, clientAddr;
+int frontend_fd, connect2backend_fd, client_fd;
 int client_len;
 unordered_map<string, string> req_map;
 package pkg;
 
-static void init_server(int port, string tcpSvrIP, int tcpSvrPort) {
+static void init_server(int port, string backendIP, int backendPort) {
     int tmp;
 
     gethostname(process_buf, sizeof(process_buf));
-    // httpsvr.hostname = (string)process_buf;
-    // httpsvr.port = port;
-    welcome_fd = socket(AF_INET, SOCK_STREAM, 0);
+    frontend_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-    if(welcome_fd < 0) {
+    if(frontend_fd < 0) {
         ERR_EXIT("socket");
     }
-    bzero(&httpSvrAddr, sizeof(httpSvrAddr));
-    httpSvrAddr.sin_family = AF_INET;
-    httpSvrAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    httpSvrAddr.sin_port = htons((unsigned short)port);
+    bzero(&frontendAddr, sizeof(frontendAddr));
+    frontendAddr.sin_family = AF_INET;
+    frontendAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    frontendAddr.sin_port = htons((unsigned short)port);
 
     tmp = 1;
-    if(setsockopt(welcome_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
+    if(setsockopt(frontend_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
         ERR_EXIT("setsockopt");
     }
-    if(bind(welcome_fd, (struct sockaddr*)&httpSvrAddr, sizeof(httpSvrAddr))) {
+    if(bind(frontend_fd, (struct sockaddr*)&frontendAddr, sizeof(frontendAddr))) {
         ERR_EXIT("bind");
     }
-    if(listen(welcome_fd, 1024) < 0) {
+    if(listen(frontend_fd, 1024) < 0) {
         ERR_EXIT("listen");
     }
 
-    cout << "HTTP server listen on port: " << port << ", fd: " << welcome_fd << '\n';
+    cout << "HTTP server listen on port: " << port << ", fd: " << frontend_fd << '\n';
 
     // tcp client connecting to server(backend)
-    connect2svr_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if(connect2svr_fd < 0) {
+    connect2backend_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if(connect2backend_fd  < 0) {
         ERR_EXIT("socket");
     }
-    if(inet_addr(tcpSvrIP.c_str()) < 0) {
+    if(inet_addr(backendIP.c_str()) < 0) {
         fprintf(stderr, "server ip should be a valid ip.\n");
         exit(1);
     }
-    if(tcpSvrPort < 0 || tcpSvrPort > 65535) {
+    if(backendPort < 0 || backendPort > 65535) {
         fprintf(stderr, "server port should be a number between 0 to 65535.\n");
         exit(1);
     }
-    bzero(&tcpSvrAddr, sizeof(tcpSvrAddr));
+    bzero(&backendAddr, sizeof(backendAddr));
 
-    tcpSvrAddr.sin_family = AF_INET;
-    tcpSvrAddr.sin_addr.s_addr = inet_addr(tcpSvrIP.c_str());
-    tcpSvrAddr.sin_port = htons((unsigned short)tcpSvrPort);
-    // cout << tcpSvrPort << '\n';
+    backendAddr.sin_family = AF_INET;
+    backendAddr.sin_addr.s_addr = inet_addr(backendIP.c_str());
+    backendAddr.sin_port = htons((unsigned short)backendPort);
     tmp = 1;
-    if(setsockopt(connect2svr_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
+    if(setsockopt(connect2backend_fd , SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
         ERR_EXIT("setsockopt");
     }
-    if(connect(connect2svr_fd, (struct sockaddr*)&tcpSvrAddr, sizeof(tcpSvrAddr)) < 0) {
-
+    if(connect(connect2backend_fd , (struct sockaddr*)&backendAddr, sizeof(backendAddr)) < 0) {
         ERR_EXIT("connect");
     }
 
-    cout << "connected to " + tcpSvrIP << '\n';
+    cout << "connected to " + backendIP << '\n';
 }
 
 string set_200_header(string file_type, string extra_field = "", int body_len = 0) {
@@ -139,8 +134,6 @@ int read_httpreq() {
     // seperate header and body
     string header = req.substr(0, eoh), subheader = header, body = req.substr(eoh + 4), tmpstr;
     eoh += 4;
-    // cout << "\n\nheader: \n" << header << "\n\n\n";
-    // cout << "\n\nbody: \n" << body << "\n\n\n";
     int sz, sep;
     sz = subheader.find("\r\n");
     tmpstr = subheader.substr(0, sz);
@@ -149,12 +142,10 @@ int read_httpreq() {
     // method
     sz = tmpstr.find(" ");
     req_map["method"] = tmpstr.substr(0, sz);
-    // cout << "method: " << req_map["method"]  << '\n';
     tmpstr = tmpstr.substr(sz + 1);
     // reqpath
     sz = tmpstr.find(" ");
     req_map["reqpath"] = tmpstr.substr(0, sz);
-    // cout << "reqpath: " << req_map["reqpath"]  << '\n';
 
     // by traversing the header, split each field out and store it into a map
     while((sz = subheader.find("\r\n")) != string::npos) {
@@ -162,14 +153,12 @@ int read_httpreq() {
         subheader = subheader.substr(sz + 2);
         sep = tmpstr.find(": ");
         req_map[tmpstr.substr(0, sep)] = tmpstr.substr(sep + 2);
-        // cout << tmpstr.substr(0, sep) + ": " + tmpstr.substr(sep + 2) + "\n";
     }
 
     // get the last field in request
     sep = subheader.find(": ");
     if(sep != string::npos) {
         req_map[subheader.substr(0, sep)] = subheader.substr(sep + 2);
-        // cout << subheader.substr(0, sep) + ": " + subheader.substr(sep + 2) + "\n";
     }
 
     string subbody = body;
@@ -178,39 +167,37 @@ int read_httpreq() {
         subbody = subbody.substr(sz + 2);
         sep = tmpstr.find("=");
         req_map[tmpstr.substr(0, sep)] = tmpstr.substr(sep + 1);
-        // cout << tmpstr.substr(0, sep) + " = " + tmpstr.substr(sep + 1) + "\n";
     }
     sep = subbody.find("=");
     if(sep != string::npos) {
         req_map[subbody.substr(0, sep)] = subbody.substr(sep + 1);
-        // cout << subbody.substr(0, sep) + " = " + subbody.substr(sep + 1) + "\n";    
     }
     return 1;
 }
 
 int main(int argc, char *argv[]) {
     if(argc != 3) {
-        fprintf(stderr, "usage: %s [SERVER_ADDR]:[SERVER_PORT] [CLIENT_PORT]\n", argv[0]);
+        fprintf(stderr, "usage: %s [BACKEND_IP]:[BACKEND_PORT] [FRONTEND_PORT]\n", argv[0]);
         exit(1);
     }
 
     string arg1 = (string)argv[1];
     if(arg1.find(':') == string::npos) {
-        fprintf(stderr, "usage: %s [SERVER_ADDR]:[SERVER_PORT] [CLIENT_PORT]\n", argv[0]);
+        fprintf(stderr, "usage: %s [BACKEND_IP]:[BACKEND_PORT] [FRONTEND_PORT]\n", argv[0]);
         exit(1);
     }
-    string tcpSvrIP = arg1.substr(0, arg1.find(':')), tcpSvrPortStr = arg1.substr(arg1.find(':') + 1);
+    string backendIP = arg1.substr(0, arg1.find(':')), backendPortStr = arg1.substr(arg1.find(':') + 1);
     string myPortStr = (string)argv[2];
 
-    int tcpSvrPort = stoi(tcpSvrPortStr), myPort = stoi(myPortStr);
-    init_server(myPort, tcpSvrIP, tcpSvrPort);
+    int backendPort = stoi(backendPortStr), myPort = stoi(myPortStr);
+    init_server(myPort, backendIP, backendPort);
     
     string username;
 
     while(1) {
         client_len = sizeof(clientAddr);
         client_fd = -1;
-        if((client_fd = accept(welcome_fd, (struct sockaddr*)&clientAddr, (socklen_t *)&client_len)) < 0) {
+        if((client_fd = accept(frontend_fd, (struct sockaddr*)&clientAddr, (socklen_t *)&client_len)) < 0) {
             if (errno == EINTR || errno == EAGAIN) continue;  // try again
             if (errno == ENFILE) {
                 fprintf(stderr, "out of file descriptor table\n");
@@ -256,10 +243,10 @@ int main(int argc, char *argv[]) {
             }
 
             // send request to backend 
-            write(connect2svr_fd, &pkg, sizeof(package));
+            write(connect2backend_fd , &pkg, sizeof(package));
 
             struct pollfd svrpfd[2];
-            svrpfd[0].fd = connect2svr_fd;
+            svrpfd[0].fd = connect2backend_fd;
             svrpfd[0].events = POLLIN;
             // read response from backend 
             if(poll(svrpfd, (nfds_t)1, -1) < 0) {
@@ -268,7 +255,7 @@ int main(int argc, char *argv[]) {
                 }
             }
             memset(&pkg, 0, sizeof(pkg));
-            read(connect2svr_fd, &pkg, sizeof(package));
+            read(connect2backend_fd, &pkg, sizeof(package));
 
             // record username
             username = (string)(pkg.sender);
