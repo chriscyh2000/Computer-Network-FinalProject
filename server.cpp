@@ -188,7 +188,7 @@ static void load_comments(string &response) {
 
 int main(int argc, char *argv[]) {
     if(argc != 2 && argc != 3) {
-        fprintf(stderr, "usage: %s [SERVER_PORT] [OPTIONAL]--init\n", argv[0]);
+        fprintf(stderr, "usage: %s [BACKEND_PORT] [OPTIONAL]--init\n", argv[0]);
         exit(1);
     }
 
