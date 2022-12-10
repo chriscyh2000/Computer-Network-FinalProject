@@ -31,6 +31,7 @@ For example, if you want to set up both frontend and backend at `linux15.csie.nt
 ```shell
 g++ -std=c++17 server.cpp -o server
 ./server 8999
+
 # use another shell
 g++ -std=c++17 client.cpp -o client
 ./client 127.0.0.1:8999 8989
