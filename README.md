@@ -15,19 +15,19 @@ The final project of Computer Network 2022 (@NTU) (Project phase 2)
 
 ### Usage
 ```shell
-# in your server side
+# at your server side
 g++ -std=c++17 server.cpp -o server
 # initialize the database and run the server
 ./server [PORT_NUMBER] --init
-# if you don't want to initialize it, just use the following command
+# if you don't want to initialize the database, just run the following command
 ./server [PROT_NUMBER]
 
-# in your client side
+# at your client side
 g++ -std=c++17 client.cpp -o client
 ./client [BACKEND_IP]:[BACKEND_PORTNUMBER] [FRONTEND_PORTNUMBER]
 ```
-After run all these command, you can use `http://[FRONTEND_IP]:[FRONTEND_PORTNUMBER]` to connect the website.
-For example, if you want to set up both frontend and backend at `linux15.csie.ntu.edu.tw`, you can use the following command on that machine.
+After running all these commands, you can use `http://[FRONTEND_IP]:[FRONTEND_PORTNUMBER]` to connect the website.
+For example, if you want to set up both frontend and backend at `linux15.csie.ntu.edu.tw`, you can use the following commands on that machine.
 ```shell
 g++ -std=c++17 server.cpp -o server
 ./server 8999
