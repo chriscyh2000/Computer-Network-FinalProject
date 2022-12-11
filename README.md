@@ -27,7 +27,7 @@ g++ -std=c++17 client.cpp -o client
 ./client [BACKEND_IP]:[BACKEND_PORTNUMBER] [FRONTEND_PORTNUMBER]
 ```
 After running all these commands, you can use `http://[FRONTEND_IP]:[FRONTEND_PORTNUMBER]` to connect the website.
-For example, if you want to set up both frontend and backend at `linux15.csie.ntu.edu.tw`, you can use the following commands on that machine.
+For example, if you want to set up both frontend and backend at `linux15.csie.ntu.edu.tw`, you can run the following commands on that machine.
 ```shell
 g++ -std=c++17 server.cpp -o server
 ./server 8999
