@@ -69,7 +69,7 @@ static void init_server(int port, string backendIP, int backendPort) {
     if(setsockopt(frontend_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
         ERR_EXIT("setsockopt");
     }
-    if(bind(frontend_fd, (struct sockaddr*)&frontendAddr, sizeof(frontendAddr))) {
+    if(::bind(frontend_fd, (struct sockaddr*)&frontendAddr, sizeof(frontendAddr))) {
         ERR_EXIT("bind");
     }
     if(listen(frontend_fd, 1024) < 0) {
@@ -193,7 +193,7 @@ int main(int argc, char *argv[]) {
     init_server(myPort, backendIP, backendPort);
     
     string username;
-
+    string tmp_method = "";
     while(1) {
         client_len = sizeof(clientAddr);
         client_fd = -1;
@@ -216,6 +216,7 @@ int main(int argc, char *argv[]) {
                 continue;
             }
         }
+        
         if(read_httpreq() < 0) {
             fprintf(stderr, "read error\n");
         } 
@@ -223,25 +224,34 @@ int main(int argc, char *argv[]) {
             memset(&pkg, 0, sizeof(pkg));
             sprintf(pkg.reqpath, "%s", req_map["reqpath"].c_str());
             if(req_map["method"] == "GET") {
+                cout << "GET\n";
                 pkg.type = 0;
-                username = "";
+                if(tmp_method != "POST")
+                    username = "";
             }
             else if(req_map["method"] == "POST") {
                 if(!username.empty() && (string)pkg.reqpath != "/register") {
                     req_map["username"] = username;
+                    cout << username << "\n";
                 }
                 pkg.type = 1;
                 if(req_map.find("username") != req_map.end()) {
                     sprintf(pkg.sender, "%s", req_map["username"].c_str());
+                }else{
+                    cout << "haven't store reg_map username\n";
                 }
                 if(req_map.find("password") != req_map.end()) {
                     sprintf(pkg.password, "%s", req_map["password"].c_str());
+                }else{
+                    cout << "haven't store reg_map pwd\n";
                 }
                 if(req_map.find("content") != req_map.end()) {
                     sprintf(pkg.message, "%s", req_map["content"].c_str());
+                }else{
+                    cout << "haven't store reg_map cnt\n";
                 }
             }
-
+            
             // send request to backend 
             write(connect2backend_fd , &pkg, sizeof(package));
 
@@ -258,7 +268,11 @@ int main(int argc, char *argv[]) {
             read(connect2backend_fd, &pkg, sizeof(package));
 
             // record username
-            username = (string)(pkg.sender);
+            cout << tmp_method << " tmp\n";
+            if(tmp_method != "POST")
+                username = (string)(pkg.sender);
+            cout << username << "\n";
+            tmp_method = req_map["method"];
 
             string header = set_200_header("text/html", "", strlen(pkg.buf));
             string response = header + (string)(pkg.buf);

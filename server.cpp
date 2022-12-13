@@ -43,13 +43,13 @@ typedef struct request {
     package pkg;
 } request;
 
-typedef struct server {
-    string hostname;
-    unsigned short port;
-    int listen_fd;
-} server;
+// typedef struct server {
+//     string hostname;
+//     unsigned short port;
+//     int listen_fd;
+// } server;
 
-server tcpsvr;
+// server tcpsvr;
 struct sockaddr_in frontendAddr, backendAddr;
 int backend_fd, maxfd;
 int client_len;
@@ -74,14 +74,15 @@ static void init_server(unsigned short port) {
     backendAddr.sin_addr.s_addr = htonl(INADDR_ANY);
     backendAddr.sin_port = htons((unsigned short)port);
 
-    tmp = 1;
+    tmp = 1;//bool variable
+    //setsockopt means the operation when use socket, SO_REUSEADDR means reuse address when close socket
     if(setsockopt(backend_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
         ERR_EXIT("setsockopt");
     }
-    if(bind(backend_fd, (struct sockaddr*)&backendAddr, sizeof(backendAddr))) {
+    if(::bind(backend_fd, (struct sockaddr*)&backendAddr, sizeof(backendAddr))) {
         ERR_EXIT("bind");
     }
-    if(listen(backend_fd, 1024) < 0) {
+    if(listen(backend_fd, 1024) < 0) {//allow 1024 clients
         ERR_EXIT("listen");
     }
 
@@ -179,6 +180,7 @@ static void load_comments(string &response) {
     comments_file.open("./database/comments.txt");
     while(getline(comments_file, data)) {
         int sep = data.find(",");
+        cout << data.substr(0, sep) << "\n";
         response.append("<p>[" + data.substr(0, sep) + "]: " + data.substr(sep + 1) + "\n");
     }
     while(getline(template_file, data)) {
@@ -209,15 +211,15 @@ int main(int argc, char *argv[]) {
     char frontend_host[256];
 
     while(1) {
-        if((ready_fds = poll(fdarray, nfds, -1)) < 0) {
+        if((ready_fds = poll(fdarray, nfds, -1)) < 0) {//Poll failed(with some error)
             if(errno == EINTR || errno == EAGAIN) {
                 continue;
             }
         }
         for(int i = 1; i < nfds; ++i) { // we can threading here
-            check_connection(fdarray, i, nfds);
+            check_connection(fdarray, i, nfds);//If error return > 0, return error bytes position
             if(fdarray[i].revents & POLLIN) {
-                if(read_package(fdarray[i].fd) <= 0 || check_connection(fdarray, i, nfds) > 0) {
+                if(read_package(fdarray[i].fd) <= 0 || check_connection(fdarray, i, nfds) > 0) {//deal with error
                     close(fdarray[i].fd);
                     swap(fdarray[i--], fdarray[--nfds]);
                     continue;
@@ -225,7 +227,7 @@ int main(int argc, char *argv[]) {
 
                 string response;
                 if(request_array[fdarray[i].fd].pkg.type == 0) {
-                    homepage_message(response, "", LOGINLEN);
+                    homepage_message(response, "", LOGINLEN);//read the first part of index.html
                     sprintf(request_array[fdarray[i].fd].pkg.buf, "%s", response.c_str());
                 }
                 else {
@@ -278,10 +280,12 @@ int main(int argc, char *argv[]) {
                         string message = (string)request_array[fdarray[i].fd].pkg.message;
                         memset(&(request_array[fdarray[i].fd].pkg), 0, sizeof(package));
                         if(username.empty()) {
+                            cout << "username empty when comments\n";
                             homepage_message(response, "", LOGINLEN);
                         }
                         else {
                             if(message.empty() == false) {
+                                cout << "message empty\n";
                                 ofstream file;
                                 file.open("./database/comments.txt", ios_base::app);
                                 file << username << "," << message << '\n';
@@ -311,6 +315,7 @@ int main(int argc, char *argv[]) {
                 fdarray[i].events = POLLIN;
             }
         }
+        
         if(fdarray[0].revents & POLLIN) {
             client_len = sizeof(frontendAddr);
             int conn_fd = accept(backend_fd, (struct sockaddr *)&frontendAddr, (socklen_t *)&client_len);
