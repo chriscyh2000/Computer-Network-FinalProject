@@ -20,7 +20,7 @@
 #define MSGMAX 10000
 
 using namespace std;
-using namespace filesystem;
+using namespace std::__fs::filesystem;
 
 #define LOGINLEN 16
 #define REGISTERLEN 24
@@ -67,7 +67,7 @@ static void init_server(unsigned short port) {
     // backend_fd = httpsvr.listen_fd;
 
     if(backend_fd < 0) {
-        ERR_EXIT("socket");
+        ERR_EXIT("socket failed");
     }
     bzero(&backendAddr, sizeof(backendAddr));
     backendAddr.sin_family = AF_INET;
@@ -78,7 +78,7 @@ static void init_server(unsigned short port) {
     if(setsockopt(backend_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
         ERR_EXIT("setsockopt");
     }
-    if(bind(backend_fd, (struct sockaddr*)&backendAddr, sizeof(backendAddr))) {
+    if(::bind(backend_fd, (struct sockaddr*)&backendAddr, sizeof(backendAddr))) {
         ERR_EXIT("bind");
     }
     if(listen(backend_fd, 1024) < 0) {
