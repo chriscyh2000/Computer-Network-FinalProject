@@ -188,7 +188,7 @@ static void load_comments(string &response) {
 
 int main(int argc, char *argv[]) {
     if(argc != 2 && argc != 3) {
-        fprintf(stderr, "usage: %s [SERVER_PORT] [OPTIONAL]--init\n", argv[0]);
+        fprintf(stderr, "usage: %s [BACKEND_PORT] [OPTIONAL]--init\n", argv[0]);
         exit(1);
     }
 
@@ -229,7 +229,6 @@ int main(int argc, char *argv[]) {
                     sprintf(request_array[fdarray[i].fd].pkg.buf, "%s", response.c_str());
                 }
                 else {
-                    // cout << "req: " << (string)request_array[fdarray[i].fd].pkg.reqpath <<'\n';
                     if((string)request_array[fdarray[i].fd].pkg.reqpath == "/register") {
                         string username = (string)request_array[fdarray[i].fd].pkg.sender;
                         string password = (string)request_array[fdarray[i].fd].pkg.password;
@@ -278,15 +277,16 @@ int main(int argc, char *argv[]) {
                         string username = (string)request_array[fdarray[i].fd].pkg.sender;
                         string message = (string)request_array[fdarray[i].fd].pkg.message;
                         memset(&(request_array[fdarray[i].fd].pkg), 0, sizeof(package));
-
                         if(username.empty()) {
                             homepage_message(response, "", LOGINLEN);
                         }
                         else {
-                            ofstream file;
-                            file.open("./database/comments.txt", ios_base::app);
-                            file << username << "," << message << '\n';
-                            file.close();
+                            if(message.empty() == false) {
+                                ofstream file;
+                                file.open("./database/comments.txt", ios_base::app);
+                                file << username << "," << message << '\n';
+                                file.close();
+                            }
                             load_comments(response);
                         }
 
@@ -301,7 +301,6 @@ int main(int argc, char *argv[]) {
                 fdarray[i].events = POLLOUT;
             }
             else if(fdarray[i].revents & POLLOUT) {
-                // cout << "BUF:" << (string)(request_array[fdarray[i].fd].pkg.buf) << '\n';
                 if(write(fdarray[i].fd, &(request_array[fdarray[i].fd].pkg), sizeof(package)) <= 0 || \
                     check_connection(fdarray, i, nfds) > 0) {
 
