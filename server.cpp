@@ -15,12 +15,16 @@
 #include <vector>
 #include <filesystem>
 #include <fstream>
+#include<opencv2/opencv.hpp>
+#include <thread>
+#include <mutex>
+#include <deque>
 
 #define ERR_EXIT(a) do { perror(a); exit(1); } while(0)
 #define MSGMAX 10000
 
 using namespace std;
-using namespace filesystem;
+using namespace cv;
 
 #define LOGINLEN 16
 #define REGISTERLEN 24
@@ -56,6 +60,16 @@ int client_len;
 
 request *request_array;
 
+//Below are for video frames transferring
+const size_t sending_threads_num = 2;
+const string default_filename_video = "./sample.mov";
+const string default_filename_audio = "./sample.m4a";
+int max_queue_size = 5;
+
+typedef deque< shared_ptr<Mat> > FrameQueue;
+mutex frame_queues_guard;
+vector<FrameQueue> frame_queues;
+
 static void init_server(unsigned short port) {
     int tmp;
 
@@ -65,10 +79,10 @@ static void init_server(unsigned short port) {
     backend_fd = socket(AF_INET, SOCK_STREAM, 0);
     // tcpsvr.listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     // backend_fd = httpsvr.listen_fd;
-
     if(backend_fd < 0) {
         ERR_EXIT("socket");
     }
+
     bzero(&backendAddr, sizeof(backendAddr));
     backendAddr.sin_family = AF_INET;
     backendAddr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -79,7 +93,7 @@ static void init_server(unsigned short port) {
     if(setsockopt(backend_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
         ERR_EXIT("setsockopt");
     }
-    if(::bind(backend_fd, (struct sockaddr*)&backendAddr, sizeof(backendAddr))) {
+    if(bind(backend_fd, (struct sockaddr*)&backendAddr, sizeof(backendAddr))) {
         ERR_EXIT("bind");
     }
     if(listen(backend_fd, 1024) < 0) {//allow 1024 clients
@@ -93,8 +107,8 @@ static void init_server(unsigned short port) {
 }
 
 void init_database() {
-    remove_all("database");
-    create_directory("database");
+    remove("database");
+    mkdir("database", 0777);
 
     ofstream user_info("./database/user_passwd.txt");
     user_info << "";
@@ -188,9 +202,83 @@ static void load_comments(string &response) {
     }
 }
 
+void read_file(const string& filename) {
+    VideoCapture source(filename);
+    assert(frame_queues.size() == sending_threads_num);
+
+    if(!source.isOpened()) {
+        cout << "Error opening video stream or file\n";
+        exit(-1);
+    }
+    bool stop_now = false;
+
+    uint64_t timestamp = 0;
+    while(source.isOpened()) {
+        size_t queue_id = timestamp % sending_threads_num;{
+            lock_guard<mutex> lock(frame_queues_guard);
+            if (frame_queues[queue_id].size() >= max_queue_size)
+                continue;
+        }
+
+        shared_ptr<Mat> frame(new Mat());
+        bool ret = source.read(*frame);
+        
+        if (!ret && frame->empty()) {//Video is over
+            cerr << "Video is over\n";
+            stop_now = true; // wait putting empty "deactivation frame" to the queue to stop other threads
+        }else{
+            lock_guard<mutex> lock(frame_queues_guard);
+            if (!stop_now){
+                frame_queues[queue_id].push_back(frame);
+            }//else {
+            //     for(int i = 0; i < sending_threads_num; ++i){
+            //         frame_queues[i].push_back(frame);
+            //     }
+            // }
+        }
+
+        if (stop_now)
+            break;
+        ++timestamp;
+    }
+    source.release();
+}
+
+void play_to_network(int socket, int debug_thread_id) {
+    int bytes = 0;
+    while (1) {
+        lock_guard<mutex> lock(frame_queues_guard);
+        if (frame_queues[debug_thread_id].empty())//No frames to send in this queue
+            continue;
+
+        shared_ptr<Mat> frame_to_send = frame_queues[debug_thread_id].front();
+        frame_queues[debug_thread_id].pop_front();
+        if (frame_to_send->empty()) // No more frames to send now!
+            break;
+
+        int frame_length = frame_to_send->total() * frame_to_send->elemSize();
+        if ((bytes = send(socket, frame_to_send->data, frame_length, 0)) < 0) {
+            cerr << "bytes = " << bytes << "\n";
+            break;
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
-    if(argc != 2 && argc != 3) {
+    //the variables for sending video
+    string filename;
+    int width, height;
+    int size_buffer[3];
+    bool size_sent;
+    int type_media = 0;
+    //the variables for sending audio
+    char audio_buffer[512];
+
+    //Specifying argv
+    if(argc != 2 && argc != 3 && argc != 4) {
         fprintf(stderr, "usage: %s [BACKEND_PORT] [OPTIONAL]--init\n", argv[0]);
+        fprintf(stderr, "Or\n");
+        fprintf(stderr, "usage: %s [BACKEND_PORT] -video(-audio) [OPTIONAL][FILEPATH]\n", argv[0]);
         exit(1);
     }
 
@@ -198,9 +286,41 @@ int main(int argc, char *argv[]) {
     int port = stoi(arg1);
     init_server(port);
 
-    if(argc == 3 && (string)argv[2] == "--init") {
-        init_database();
+    if(argc == 3) {
+        if((string)argv[2] == "--init"){
+            init_database();
+        }else if((string)argv[2] == "-video"){
+            type_media = 1;
+            filename = default_filename_video;
+        }else if((string)argv[2] == "-audio"){
+            type_media = 2;
+            filename = default_filename_audio;
+        }
     }
+
+    if(argc == 4){
+        type_media = 1;
+        filename = argv[3];
+    }
+
+    if(type_media == 1){//If I need to send video
+        VideoCapture cap(filename);
+        width = cap.get(CAP_PROP_FRAME_WIDTH);
+        height = cap.get(CAP_PROP_FRAME_HEIGHT);
+
+        size_sent = false;
+        size_buffer[0] = height; size_buffer[1] = width;
+            
+        cout << "height: " << size_buffer[0] << "\n";
+        cout << "width: " << size_buffer[1] << "\n";
+    }
+    //deal with the video file transfer
+    for (size_t i = 0; i < sending_threads_num; ++i) {
+        lock_guard<mutex> lock(frame_queues_guard);
+        frame_queues.push_back(FrameQueue());
+    }
+    vector<thread> sending_threads;
+    
 
     struct pollfd fdarray[maxfd];
     fdarray[0].fd = backend_fd;
@@ -331,14 +451,58 @@ int main(int argc, char *argv[]) {
                 ERR_EXIT("accept");
             }
 
-            memset(frontend_host, 0, sizeof(frontend_host));
-            strcpy(frontend_host, inet_ntoa(frontendAddr.sin_addr));
-            printf("getting a new request... fd %d from %s\n", conn_fd, frontend_host);
+            //if the type is video sending
+            if(type_media == 1){
+                //At first, send the frame size to client
+                if(!size_sent){
+                    if(send(conn_fd, size_buffer, sizeof(size_buffer), 0) < 0){
+                        cerr << "Can't send frame size!" << "\n";
+                    }else{
+                        size_sent = true;
+                    }
+                }
 
-            init_request(&(request_array[conn_fd]));
-            request_array[conn_fd].conn_fd = conn_fd;
-            fdarray[nfds].fd = conn_fd;
-            fdarray[nfds++].events = POLLIN;
+                thread read_thread(read_file, filename);
+
+                for (size_t i = 0; i < sending_threads_num; ++i) {
+                    assert(frame_queues.size() > i);
+                    assert(sending_threads.size() == i);
+                    thread t(play_to_network, conn_fd, (int)i);
+                    sending_threads.push_back(move(t));
+                }
+
+                for (size_t i = 0; i < sending_threads_num; ++i) {
+                    sending_threads[i].join();
+                }
+                sending_threads.clear();
+
+                read_thread.join();
+                cerr << "Wait for new connections\n";
+            }else if(type_media == 2){
+                // File Pointer Declaration
+                FILE *fp;
+                fp = fopen("sample.m4a", "rb");
+                int bytes_left = 0;
+                while(1){
+                    if((bytes_left = fread(audio_buffer, sizeof(audio_buffer), 1, fp)) < 0){
+                        cerr << "read bytes = " << bytes_left << ", fread didn't read anything for 1 sec. Audio seems to be over\n";
+                        break;
+                    }
+                    if(send(conn_fd, audio_buffer, sizeof(audio_buffer), 0) < 0){
+                        cerr << "Can't send audio file!\n";
+                    }
+                }
+                cerr << "Wait for new connections\n";
+            }else{//else
+                memset(frontend_host, 0, sizeof(frontend_host));
+                strcpy(frontend_host, inet_ntoa(frontendAddr.sin_addr));
+                printf("getting a new request... fd %d from %s\n", conn_fd, frontend_host);
+
+                init_request(&(request_array[conn_fd]));
+                request_array[conn_fd].conn_fd = conn_fd;
+                fdarray[nfds].fd = conn_fd;
+                fdarray[nfds++].events = POLLIN;
+            }
         }
     }
     return 0;

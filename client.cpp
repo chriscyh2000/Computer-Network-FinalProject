@@ -14,12 +14,14 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include<opencv2/opencv.hpp>
 
 #define HEADER_MAX 8192
 
 #define ERR_EXIT(a) do { perror(a); exit(1); } while(0)
 
 using namespace std;
+using namespace cv;
 
 typedef struct package {
     int type, buf_size;
@@ -51,33 +53,7 @@ int client_len;
 unordered_map<string, string> req_map;
 package pkg;
 
-static void init_server(int port, string backendIP, int backendPort) {
-    int tmp;
-
-    gethostname(process_buf, sizeof(process_buf));
-    frontend_fd = socket(AF_INET, SOCK_STREAM, 0);
-
-    if(frontend_fd < 0) {
-        ERR_EXIT("socket");
-    }
-    bzero(&frontendAddr, sizeof(frontendAddr));
-    frontendAddr.sin_family = AF_INET;
-    frontendAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    frontendAddr.sin_port = htons((unsigned short)port);
-
-    tmp = 1;
-    if(setsockopt(frontend_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
-        ERR_EXIT("setsockopt");
-    }
-    if(::bind(frontend_fd, (struct sockaddr*)&frontendAddr, sizeof(frontendAddr))) {
-        ERR_EXIT("bind");
-    }
-    if(listen(frontend_fd, 1024) < 0) {
-        ERR_EXIT("listen");
-    }
-
-    cout << "HTTP server listen on port: " << port << ", fd: " << frontend_fd << '\n';
-
+void init_backend_socket(string backendIP, int backendPort){
     // tcp client connecting to server(backend)
     connect2backend_fd = socket(AF_INET, SOCK_STREAM, 0);
     if(connect2backend_fd  < 0) {
@@ -96,7 +72,7 @@ static void init_server(int port, string backendIP, int backendPort) {
     backendAddr.sin_family = AF_INET;
     backendAddr.sin_addr.s_addr = inet_addr(backendIP.c_str());
     backendAddr.sin_port = htons((unsigned short)backendPort);
-    tmp = 1;
+    int tmp = 1;
     if(setsockopt(connect2backend_fd , SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
         ERR_EXIT("setsockopt");
     }
@@ -105,6 +81,35 @@ static void init_server(int port, string backendIP, int backendPort) {
     }
 
     cout << "connected to " + backendIP << '\n';
+}
+
+static void init_server(int port, string backendIP, int backendPort) {
+    int tmp;
+
+    gethostname(process_buf, sizeof(process_buf));
+    frontend_fd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if(frontend_fd < 0) {
+        ERR_EXIT("socket");
+    }
+    bzero(&frontendAddr, sizeof(frontendAddr));
+    frontendAddr.sin_family = AF_INET;
+    frontendAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    frontendAddr.sin_port = htons((unsigned short)port);
+
+    tmp = 1;
+    if(setsockopt(frontend_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
+        ERR_EXIT("setsockopt");
+    }
+    if(bind(frontend_fd, (struct sockaddr*)&frontendAddr, sizeof(frontendAddr))) {
+        ERR_EXIT("bind");
+    }
+    if(listen(frontend_fd, 1024) < 0) {
+        ERR_EXIT("listen");
+    }
+
+    cout << "HTTP server listen on port: " << port << ", fd: " << frontend_fd << '\n';
+    init_backend_socket(backendIP, backendPort);
 }
 
 string set_200_header(string file_type, string extra_field = "", int body_len = 0) {
@@ -178,107 +183,180 @@ int read_httpreq() {
 int main(int argc, char *argv[]) {
     if(argc != 3) {
         fprintf(stderr, "usage: %s [BACKEND_IP]:[BACKEND_PORT] [FRONTEND_PORT]\n", argv[0]);
+        fprintf(stderr, "Or\n");
+        fprintf(stderr, "usage: %s [BACKEND_IP]:[BACKEND_PORT] -video(-audio)\n", argv[0]);
         exit(1);
-    }
+    }//No need to change for video/audio
 
-    string arg1 = (string)argv[1];
-    if(arg1.find(':') == string::npos) {
+    string ip = (string)argv[1];
+    if(ip.find(':') == string::npos) {
         fprintf(stderr, "usage: %s [BACKEND_IP]:[BACKEND_PORT] [FRONTEND_PORT]\n", argv[0]);
         exit(1);
     }
-    string backendIP = arg1.substr(0, arg1.find(':')), backendPortStr = arg1.substr(arg1.find(':') + 1);
-    string myPortStr = (string)argv[2];
+    string backendIP = ip.substr(0, ip.find(':')), backendPortStr = ip.substr(ip.find(':') + 1);
+    int backendPort = stoi(backendPortStr);
 
-    int backendPort = stoi(backendPortStr), myPort = stoi(myPortStr);
-    init_server(myPort, backendIP, backendPort);
+    int type_media = 0;
+    //this is for video
+    if((string)argv[2] == "-video"){
+        type_media = 1;
+    }else if((string)argv[2] == "-audio"){
+        type_media = 2;
+    }else{
+        string myPortStr = (string)argv[2];
+        int myPort = stoi(myPortStr);
+        init_server(myPort, backendIP, backendPort);
+    }
     
     string username;
     string tmp_method = "";
+    char file_data[512], buffer[512];
     while(1) {
-        client_len = sizeof(clientAddr);
-        client_fd = -1;
-        if((client_fd = accept(frontend_fd, (struct sockaddr*)&clientAddr, (socklen_t *)&client_len)) < 0) {
-            if (errno == EINTR || errno == EAGAIN) continue;  // try again
-            if (errno == ENFILE) {
-                fprintf(stderr, "out of file descriptor table\n");
-                continue;
-            }
-            ERR_EXIT("accept");
-        }
+        if(type_media >= 1){//request for video or audio
+            //Connect here!
+            init_backend_socket(backendIP, backendPort);
+            //Video
+            if(type_media == 1){
+                //Receive the frame size first
+                int size_buffer[3];
 
-        // read the fd when it is ready to read
-        struct pollfd pfd[2];
-        pfd[0].fd = client_fd;
-        pfd[0].events = POLLIN;
+                if(recv(connect2backend_fd, size_buffer, sizeof(size_buffer), 0) < 0){
+                    cerr << "Unknown frame size!\n";
+                }
+                int height = size_buffer[0]; 
+                int width = size_buffer[1];
+                cout << height << " " << width << "\n";
 
-        if(poll(pfd, (nfds_t)1, -1) < 0) {
-            if(errno == EINTR || errno == EAGAIN) {
-                continue;
-            }
-        }
-        
-        if(read_httpreq() < 0) {
-            fprintf(stderr, "read error\n");
-        } 
-        else {
-            memset(&pkg, 0, sizeof(pkg));
-            sprintf(pkg.reqpath, "%s", req_map["reqpath"].c_str());
-            if(req_map["method"] == "GET") {
-                cout << "GET\n";
-                pkg.type = 0;
-                if(tmp_method != "POST")
-                    username = "";
-            }
-            else if(req_map["method"] == "POST") {
-                if(!username.empty() && (string)pkg.reqpath != "/register") {
-                    req_map["username"] = username;
-                    cout << username << "\n";
-                }
-                pkg.type = 1;
-                if(req_map.find("username") != req_map.end()) {
-                    sprintf(pkg.sender, "%s", req_map["username"].c_str());
-                }else{
-                    cout << "haven't store reg_map username\n";
-                }
-                if(req_map.find("password") != req_map.end()) {
-                    sprintf(pkg.password, "%s", req_map["password"].c_str());
-                }else{
-                    cout << "haven't store reg_map pwd\n";
-                }
-                if(req_map.find("content") != req_map.end()) {
-                    sprintf(pkg.message, "%s", req_map["content"].c_str());
-                }else{
-                    cout << "haven't store reg_map cnt\n";
-                }
-            }
-            
-            // send request to backend 
-            write(connect2backend_fd , &pkg, sizeof(package));
+                cv::Mat frame = cv::Mat::zeros(height , width, CV_8UC3);
+                int frame_length = frame.total() * frame.elemSize();
+                uchar *data_ptr = frame.data;
 
-            struct pollfd svrpfd[2];
-            svrpfd[0].fd = connect2backend_fd;
-            svrpfd[0].events = POLLIN;
-            // read response from backend 
-            if(poll(svrpfd, (nfds_t)1, -1) < 0) {
+                // make frame continuous
+                if (!frame.isContinuous()) {
+                    frame = frame.clone();
+                }
+
+                cv::namedWindow("CV Video Client", 1);
+
+                int bytes = 0;
+                while (1) {
+                    if ((bytes = recv(connect2backend_fd, data_ptr, frame_length , MSG_WAITALL)) == -1) {
+                        cerr << "received bytes = " << bytes << ", recv didn't receive anything for 1 sec. Video seems to be over\n";
+                        break;
+                    }
+                    cout << bytes << "\n";
+                    cv::imshow("CV Video Client", frame);
+                    if (char key = (char)cv::waitKey(25)) {
+                        if (key == 27 || key == 'q')
+                            break;
+                    }
+                }
+                cv::destroyAllWindows();
+
+                close(connect2backend_fd);
+            }else{//Audio
+                FILE *fp2 = fopen("AudioReceived.mp3", "w"); // creating new file in write mode for receiving data
+                int count = 0;
+                while (1){
+                    recv(connect2backend_fd, buffer, sizeof(buffer), 0);
+                    if(count > 100){
+                        break;
+                    }
+                    // if(read(connect2backend_fd, buffer, sizeof(buffer)) < 0){
+                    //     cerr << "Can't read!\n";
+                    //     break;
+                    // }
+                    fwrite(file_data, 512, 1, fp2);
+                    count ++;
+                }
+                close(connect2backend_fd);
+            }
+        }else{
+            client_len = sizeof(clientAddr);
+            client_fd = -1;
+            if((client_fd = accept(frontend_fd, (struct sockaddr*)&clientAddr, (socklen_t *)&client_len)) < 0) {
+                if (errno == EINTR || errno == EAGAIN) continue;  // try again
+                if (errno == ENFILE) {
+                    fprintf(stderr, "out of file descriptor table\n");
+                    continue;
+                }
+                ERR_EXIT("accept");
+            }
+
+            // read the fd when it is ready to read
+            struct pollfd pfd[2];
+            pfd[0].fd = client_fd;
+            pfd[0].events = POLLIN;
+
+            if(poll(pfd, (nfds_t)1, -1) < 0) {
                 if(errno == EINTR || errno == EAGAIN) {
                     continue;
                 }
             }
-            memset(&pkg, 0, sizeof(pkg));
-            read(connect2backend_fd, &pkg, sizeof(package));
+            
+            if(read_httpreq() < 0) {
+                fprintf(stderr, "read error\n");
+            } 
+            else {
+                memset(&pkg, 0, sizeof(pkg));
+                sprintf(pkg.reqpath, "%s", req_map["reqpath"].c_str());
+                if(req_map["method"] == "GET") {
+                    cout << "GET\n";
+                    pkg.type = 0;
+                    if(tmp_method != "POST")
+                        username = "";
+                }
+                else if(req_map["method"] == "POST") {
+                    if(!username.empty() && (string)pkg.reqpath != "/register") {
+                        req_map["username"] = username;
+                        cout << username << "\n";
+                    }
+                    pkg.type = 1;
+                    if(req_map.find("username") != req_map.end()) {
+                        sprintf(pkg.sender, "%s", req_map["username"].c_str());
+                    }else{
+                        cout << "haven't store req_map username\n";
+                    }
+                    if(req_map.find("password") != req_map.end()) {
+                        sprintf(pkg.password, "%s", req_map["password"].c_str());
+                    }else{
+                        cout << "haven't store req_map pwd\n";
+                    }
+                    if(req_map.find("content") != req_map.end()) {
+                        sprintf(pkg.message, "%s", req_map["content"].c_str());
+                    }else{
+                        cout << "haven't store req_map cnt\n";
+                    }
+                }
+                
+                // send request to backend 
+                write(connect2backend_fd , &pkg, sizeof(package));
 
-            // record username
-            cout << tmp_method << " tmp\n";
-            if(tmp_method != "POST")
-                username = (string)(pkg.sender);
-            cout << username << "\n";
-            tmp_method = req_map["method"];
+                struct pollfd svrpfd[2];
+                svrpfd[0].fd = connect2backend_fd;
+                svrpfd[0].events = POLLIN;
+                // read response from backend 
+                if(poll(svrpfd, (nfds_t)1, -1) < 0) {
+                    if(errno == EINTR || errno == EAGAIN) {
+                        continue;
+                    }
+                }
+                memset(&pkg, 0, sizeof(pkg));
+                read(connect2backend_fd, &pkg, sizeof(package));
 
-            string header = set_200_header("text/html", "", strlen(pkg.buf));
-            string response = header + (string)(pkg.buf);
-            write(client_fd, response.c_str(), response.length());
+                // record username
+                // cout << tmp_method << " tmp\n";
+                if(tmp_method != "POST")
+                    username = (string)(pkg.sender);
+                // cout << username << "\n";
+                tmp_method = req_map["method"];
+
+                string header = set_200_header("text/html", "", strlen(pkg.buf));
+                string response = header + (string)(pkg.buf);
+                write(client_fd, response.c_str(), response.length());
+            }
+            close(client_fd);
         }
-        close(client_fd);
     }
     return 0;
 }
