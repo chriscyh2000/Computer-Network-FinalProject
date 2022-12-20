@@ -101,7 +101,7 @@ static void init_server(int port, string backendIP, int backendPort) {
     if(setsockopt(frontend_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
         ERR_EXIT("setsockopt");
     }
-    if(bind(frontend_fd, (struct sockaddr*)&frontendAddr, sizeof(frontendAddr))) {
+    if(::bind(frontend_fd, (struct sockaddr*)&frontendAddr, sizeof(frontendAddr))) {
         ERR_EXIT("bind");
     }
     if(listen(frontend_fd, 1024) < 0) {
