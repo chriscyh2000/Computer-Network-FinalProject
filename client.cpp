@@ -269,6 +269,7 @@ int main(int argc, char *argv[]) {
                     fwrite(file_data, 512, 1, fp2);
                     count ++;
                 }
+                cout << "Audio file received\n";
                 close(connect2backend_fd);
             }
         }else{

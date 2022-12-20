@@ -24,11 +24,7 @@
 #define MSGMAX 10000
 
 using namespace std;
-<<<<<<< HEAD
 using namespace cv;
-=======
-using namespace std::__fs::filesystem;
->>>>>>> refs/remotes/origin/master
 
 #define LOGINLEN 16
 #define REGISTERLEN 24

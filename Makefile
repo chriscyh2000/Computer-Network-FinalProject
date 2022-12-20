@@ -12,7 +12,7 @@ SER = server
 CV = openCV
 PTH = pthread
 
-all: server client opencv 
+all: server client  
   
 server: $(SERVER)
 	$(CXX) $(SERVER) -o $(SER) $(INCLUDE_OPENCV) $(LINK_PTHREAD) 
