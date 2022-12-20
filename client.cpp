@@ -101,7 +101,7 @@ static void init_server(int port, string backendIP, int backendPort) {
     if(setsockopt(frontend_fd, SOL_SOCKET, SO_REUSEADDR, (void*)&tmp, sizeof(tmp)) < 0) {
         ERR_EXIT("setsockopt");
     }
-    if(bind(frontend_fd, (struct sockaddr*)&frontendAddr, sizeof(frontendAddr))) {
+    if(::bind(welcome_fd, (struct sockaddr*)&httpSvrAddr, sizeof(httpSvrAddr))) {
         ERR_EXIT("bind");
     }
     if(listen(frontend_fd, 1024) < 0) {
@@ -128,7 +128,7 @@ int read_httpreq() {
     ssize_t bytes = read(client_fd, process_buf, HEADER_MAX);
     if(bytes <= 0) return bytes;
     string req = (string)process_buf;
-
+    
     // check if "\r\n\r\n" in req string
     int eoh;
     if((eoh = req.find("\r\n\r\n")) == string::npos) {
