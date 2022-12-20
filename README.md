@@ -23,6 +23,8 @@ http://linux15.csie.ntu.edu.tw:8999
 - Allow multiple users comment on the board 
 - Users can register / login / log out on this website
 - Both frontend and backend are developed in C++
+- Video streaming from server to client
+- Audio transfering from server to client
 
 ### Other Features
 - Used `poll` to perform multiplexing
