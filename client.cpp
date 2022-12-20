@@ -191,6 +191,8 @@ int main(int argc, char *argv[]) {
     string ip = (string)argv[1];
     if(ip.find(':') == string::npos) {
         fprintf(stderr, "usage: %s [BACKEND_IP]:[BACKEND_PORT] [FRONTEND_PORT]\n", argv[0]);
+        fprintf(stderr, "Or\n");
+        fprintf(stderr, "usage: %s [BACKEND_IP]:[BACKEND_PORT] -video(-audio)\n", argv[0]);
         exit(1);
     }
     string backendIP = ip.substr(0, ip.find(':')), backendPortStr = ip.substr(ip.find(':') + 1);
