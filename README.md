@@ -23,6 +23,8 @@ http://linux15.csie.ntu.edu.tw:8999
 - Allow multiple users comment on the board 
 - Users can register / login / log out on this website
 - Both frontend and backend are developed in C++
+- Video streaming from server to client
+- Audio transfering from server to client
 
 ### Other Features
 - Used `poll` to perform multiplexing
@@ -40,7 +42,8 @@ make
 # if you don't want to initialize the database, just run the following command
 ./server [PROT_NUMBER]
 # Send the video/audio
-./server [PORT_NUMBER] -video/-audio
+./server [PORT_NUMBER] -video
+./server [PORT_NUMBER] -audio
 
 # at your client side
 make
