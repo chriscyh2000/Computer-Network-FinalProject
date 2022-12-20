@@ -128,7 +128,7 @@ int read_httpreq() {
     ssize_t bytes = read(client_fd, process_buf, HEADER_MAX);
     if(bytes <= 0) return bytes;
     string req = (string)process_buf;
-
+    
     // check if "\r\n\r\n" in req string
     int eoh;
     if((eoh = req.find("\r\n\r\n")) == string::npos) {

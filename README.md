@@ -42,7 +42,8 @@ make
 # if you don't want to initialize the database, just run the following command
 ./server [PROT_NUMBER]
 # Send the video/audio
-./server [PORT_NUMBER] -video/-audio
+./server [PORT_NUMBER] -video
+./server [PORT_NUMBER] -audio
 
 # at your client side
 make
