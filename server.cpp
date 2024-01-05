@@ -15,7 +15,7 @@
 #include <vector>
 #include <filesystem>
 #include <fstream>
-#include<opencv2/opencv.hpp>
+#include <opencv2/opencv.hpp>
 #include <thread>
 #include <mutex>
 #include <deque>
